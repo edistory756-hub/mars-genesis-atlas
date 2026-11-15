@@ -2,10 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { EvidenceCard } from "@/components/evidence/EvidenceCard";
 import { STATEMENT_KINDS, STATEMENT_KIND_ORDER } from "@/components/evidence/statement-kinds";
-import { EVIDENCE_RECORDS, MARY_ANNING_3 } from "@/lib/evidence/records";
+import { EVIDENCE_LIBRARY } from "@/lib/evidence/library";
 import { cn } from "@/lib/utils";
 
-const OG_IMAGE = MARY_ANNING_3.image?.src;
+const OG_IMAGE = EVIDENCE_LIBRARY[0]?.image?.src;
 
 export const Route = createFileRoute("/nasa-evidence")({
   head: () => ({
@@ -62,7 +62,7 @@ function NasaEvidencePage() {
       </section>
 
       <div className="space-y-10">
-        {EVIDENCE_RECORDS.map((r) => (
+        {EVIDENCE_LIBRARY.map((r) => (
           <EvidenceCard key={r.id} record={r} />
         ))}
       </div>

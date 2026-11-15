@@ -36,5 +36,7 @@ use the editor.
 - A map layer becomes selectable only after its capabilities parse and a real probe tile loads; failures show an error with retry, never substitute imagery.
 - OpenLayers code lives in lazily imported client-only modules rendered behind `<ClientOnly>`, because it touches browser APIs during SSR.
 - Mars WMTS parsing is tested against verbatim NASA capabilities fixtures in `src/test/fixtures/`, so tests run without network.
-- NASA evidence lives as typed records in `src/lib/evidence/records.ts`, each statement tagged observation/interpretation/hypothesis/unknown with its verbatim source quote, because claims must stay traceable and the UI styles each kind distinctly.
-- Unverified values (sample coordinates, dates) are stored as `null` and map links use clearly labelled approximate-region locators, because the project never invents NASA data.
+- NASA evidence records are plain data in `src/lib/evidence/data/<id>.ts`, typed by `src/lib/evidence/schema.ts` and listed in `src/lib/evidence/library.ts`, so records are added without touching components; every statement/field cites `sourceIds` and is tagged observation/interpretation/hypothesis/unknown, because claims must stay traceable and the UI styles each kind distinctly.
+- `validateEvidenceRecord` enforces the scientific rules (known sources, date precision, exact vs approximate coordinates, no proof-of-life wording, primary source read) and tests run it on every record, so a bad record fails CI instead of shipping.
+- `src/lib/evidence/records.ts` is only the map-facing view derived from the library for the Mars Explorer, so the map keeps its own shape while records evolve.
+- Unverified values are `null` (shown as "Not stated in the cited source"), dates keep only the precision a source states, and non-exact coordinates use a labelled approximate crater/region locator, because the project never invents NASA data.

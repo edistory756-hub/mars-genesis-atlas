@@ -4,23 +4,25 @@ import { ExternalLink, ImageOff, MapPinned, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
-  getSource,
+  formatEvidenceDate,
+  formatIsoDate,
+  getPrimarySource,
+  getSources,
+} from "@/lib/evidence/library";
+import { getEvidence } from "@/lib/evidence/records";
+import {
+  EVIDENCE_CATEGORIES,
+  NOT_STATED,
   type EvidenceRecord,
   type EvidenceStatement,
+  type KeyFinding,
   type StatementKind,
-} from "@/lib/evidence/records";
+} from "@/lib/evidence/schema";
 import { formatLat, formatLonEast180 } from "@/lib/mars/coords";
 import { cn } from "@/lib/utils";
 import { STATEMENT_KINDS } from "./statement-kinds";
 
-function formatDate(iso: string) {
-  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
+const PLATFORM_LABEL = { rover: "Rover", lander: "Lander", orbiter: "Orbiter", helicopter: "Helicopter" } as const;
 
 export function StatementKindBadge({ kind }: { kind: StatementKind }) {
   const k = STATEMENT_KINDS[kind];
@@ -45,14 +47,16 @@ function StatementList({ record, kind, items }: { record: EvidenceRecord; kind: 
         </h3>
         <p className="text-xs text-muted-foreground">{k.description}</p>
       </header>
-      <ul className="space-y-2">
-        {items.map((s, i) => {
-          const source = getSource(record, s.sourceId);
-          return (
-            <li key={i} className={cn("rounded-r-md px-4 py-3", k.box)}>
-              <span className="sr-only">{k.label}: </span>
-              <p className="text-sm leading-relaxed">{s.text}</p>
-              {(s.quote || source) && (
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">None recorded.</p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((s, i) => {
+            const sources = getSources(record, s.sourceIds);
+            return (
+              <li key={i} className={cn("rounded-r-md px-4 py-3", k.box)}>
+                <span className="sr-only">{k.label}: </span>
+                <p className="text-sm leading-relaxed">{s.text}</p>
                 <details className="mt-1.5 text-xs text-muted-foreground">
                   <summary className="cursor-pointer select-none font-mono uppercase tracking-wider hover:text-foreground">
                     Source
@@ -60,22 +64,23 @@ function StatementList({ record, kind, items }: { record: EvidenceRecord; kind: 
                   {s.quote && (
                     <blockquote className="mt-1.5 border-l border-border pl-3 italic">&ldquo;{s.quote}&rdquo;</blockquote>
                   )}
-                  {source && (
+                  {sources.map((source) => (
                     <a
+                      key={source.id}
                       href={source.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-1 inline-flex items-center gap-1 text-accent underline-offset-4 hover:underline"
+                      className="mr-3 mt-1 inline-flex items-center gap-1 text-accent underline-offset-4 hover:underline"
                     >
                       {source.publisher} <ExternalLink className="size-3" />
                     </a>
-                  )}
+                  ))}
                 </details>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }
@@ -84,14 +89,15 @@ function EvidenceImage({ record }: { record: EvidenceRecord }) {
   const [failed, setFailed] = useState(false);
   const image = record.image;
   if (!image) return null;
+  const primary = getPrimarySource(record);
   return (
     <figure className="self-start overflow-hidden rounded-md border bg-background">
       {failed ? (
         <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
           <ImageOff className="size-5" />
-          NASA's photo could not be loaded.
-          <a href={record.primarySourceUrl} target="_blank" rel="noreferrer" className="text-accent underline-offset-4 hover:underline">
-            View it on nasa.gov
+          The source photo could not be loaded.
+          <a href={primary.url} target="_blank" rel="noreferrer" className="text-accent underline-offset-4 hover:underline">
+            View it at {primary.publisher}
           </a>
         </div>
       ) : (
@@ -112,27 +118,72 @@ function EvidenceImage({ record }: { record: EvidenceRecord }) {
   );
 }
 
+function CoordinatesField({ record }: { record: EvidenceRecord }) {
+  const { coordinates: c, coordinateAccuracy, coordinateLabel } = record;
+  const region = record.location.region;
+  if (coordinateAccuracy === "exact-sample" && c) {
+    return (
+      <span className="block">
+        <span className="block font-semibold">{coordinateLabel}</span>
+        <span className="mt-1 block text-muted-foreground">
+          {formatLat(c.lat, 4)}, {formatLonEast180(c.lon, 4)} (Mars 2000, planetocentric)
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/10 p-2.5">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+      <span>
+        <span className="block font-semibold">Exact sample coordinates not verified</span>
+        <span className="mt-1 block text-muted-foreground">
+          {c ? (
+            <>
+              {coordinateLabel}: {region ? `${region.name}, centre ` : ""}
+              {formatLat(c.lat, 2)}, {formatLonEast180(c.lon, 2)}
+              {region ? `, about ${Math.round(region.diameterKm)} km across` : ""} (Mars 2000, planetocentric).
+              {region ? ` ${region.note}` : ""}
+            </>
+          ) : (
+            <>
+              {coordinateLabel}. {NOT_STATED}.
+            </>
+          )}
+        </span>
+      </span>
+    </span>
+  );
+}
+
 export function EvidenceCard({ record }: { record: EvidenceRecord }) {
-  const { location, dates, findings, sample } = record;
-  const loc = location.locator;
+  const { location, observationDate, publicationDate } = record;
+  const primary = getPrimarySource(record);
+  const onMap = Boolean(getEvidence(record.id));
+  const platform = PLATFORM_LABEL[record.roverOrLander.type];
   return (
     <article id={record.id} aria-labelledby={`${record.id}-title`} className="scroll-mt-20 rounded-lg border bg-card shadow-panel">
       {/* Header */}
       <header className="flex flex-wrap items-start justify-between gap-4 border-b p-5 sm:p-6">
-        <div className="min-w-0 space-y-2">
-          <p className="text-eyebrow">Evidence record · {record.rover} · {sample.name}</p>
+        <div className="min-w-0 max-w-3xl space-y-2">
+          <p className="text-eyebrow">
+            Evidence record · {record.roverOrLander.name}
+            {record.sampleName ? ` · ${record.sampleName}` : ""}
+          </p>
           <h2 id={`${record.id}-title`} className="text-2xl font-semibold leading-tight sm:text-3xl">
             {record.title}
           </h2>
+          <p className="text-sm leading-relaxed text-muted-foreground">{record.summary.text}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild>
-            <Link to="/mars-explorer" search={{ evidence: record.id }}>
-              <MapPinned /> Show on Mars map
-            </Link>
-          </Button>
+          {onMap && (
+            <Button asChild>
+              <Link to="/mars-explorer" search={{ evidence: record.id }}>
+                <MapPinned /> Show on Mars map
+              </Link>
+            </Button>
+          )}
           <Button asChild variant="outline">
-            <a href={record.primarySourceUrl} target="_blank" rel="noreferrer">
+            <a href={primary.url} target="_blank" rel="noreferrer">
               NASA source <ExternalLink />
             </a>
           </Button>
@@ -140,53 +191,50 @@ export function EvidenceCard({ record }: { record: EvidenceRecord }) {
       </header>
 
       {/* Key figures */}
-      <div className="grid grid-cols-1 border-b sm:grid-cols-3">
-        <Figure value={String(findings.carbonMoleculesIdentified)} label="carbon-containing molecules identified" />
-        <Figure value={String(findings.firstTimeOnMars)} label="detected for the first time on Mars" />
-        <div className="flex flex-col justify-center gap-1 border-t p-5 sm:border-l sm:border-t-0">
-          <StatementKindBadge kind="hypothesis" />
-          <p className="font-display text-lg font-semibold leading-snug">Origin not established</p>
-          <p className="text-xs text-muted-foreground">Biological or geological; either is possible.</p>
+      {record.keyFindings.length > 0 && (
+        <div className="grid grid-cols-1 border-b sm:grid-cols-3">
+          {record.keyFindings.map((f) => (
+            <KeyFigure key={f.id} finding={f} />
+          ))}
         </div>
-      </div>
+      )}
 
       <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         {/* Record fields */}
         <dl className="grid grid-cols-1 gap-x-6 gap-y-4 text-sm sm:grid-cols-[10rem_minmax(0,1fr)]">
           <Field label="Mission">{record.mission}</Field>
-          <Field label="Rover">{record.rover}</Field>
-          <Field label="Instrument">{record.instrument}</Field>
+          <Field label={platform}>{record.roverOrLander.name}</Field>
+          <Field label={record.instruments.length > 1 ? "Instruments" : "Instrument"}>
+            {record.instruments.length ? record.instruments.join("; ") : NOT_STATED}
+          </Field>
+          <Field label="Category">{EVIDENCE_CATEGORIES[record.category]}</Field>
           <Field label="Location">
             <span className="block">{location.hierarchy.join(" › ")}</span>
             <span className="mt-1 block text-muted-foreground">{location.summary}</span>
           </Field>
           <Field label="Sample">
-            <span className="block font-semibold">{sample.name}</span>
-            <span className="mt-1 block text-muted-foreground">{sample.context}</span>
+            <span className="block font-semibold">{record.sampleName ?? NOT_STATED}</span>
+            {record.sampleContext && <span className="mt-1 block text-muted-foreground">{record.sampleContext}</span>}
           </Field>
           <Field label="Observation date">
-            <span className="block">{dates.sampledOn ? formatDate(dates.sampledOn) : "Exact date not verified"}</span>
-            <span className="mt-1 block text-muted-foreground">{dates.sampledSummary}</span>
+            <span className="block">
+              {formatEvidenceDate(observationDate)}
+              {observationDate.precision && observationDate.precision !== "day" && (
+                <span className="text-muted-foreground"> (exact date not stated)</span>
+              )}
+            </span>
+            <span className="mt-1 block text-muted-foreground">{observationDate.note}</span>
           </Field>
           <Field label="Published">
-            <span className="block">{formatDate(dates.findingsPublished)}</span>
-            <span className="mt-1 block text-muted-foreground">{dates.findingsPublishedSummary}</span>
+            <span className="block">{formatEvidenceDate(publicationDate)}</span>
+            <span className="mt-1 block text-muted-foreground">{publicationDate.note}</span>
           </Field>
           <Field label="Coordinates">
-            <span className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/10 p-2.5">
-              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
-              <span>
-                <span className="block font-semibold">Exact sample coordinates not verified</span>
-                <span className="mt-1 block text-muted-foreground">
-                  Approximate locator: {loc.name}, centre {formatLat(loc.center.lat, 2)}, {formatLonEast180(loc.center.lon, 2)},
-                  about {Math.round(loc.diameterKm)} km across (Mars 2000, planetocentric). {loc.note}
-                </span>
-              </span>
-            </span>
+            <CoordinatesField record={record} />
           </Field>
           <Field label="Original source">
-            <a href={record.primarySourceUrl} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-accent underline-offset-4 hover:underline">
-              {record.primarySourceUrl}
+            <a href={primary.url} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-accent underline-offset-4 hover:underline">
+              {primary.url}
             </a>
           </Field>
         </dl>
@@ -217,7 +265,10 @@ export function EvidenceCard({ record }: { record: EvidenceRecord }) {
               </a>
               <span className="text-xs text-muted-foreground">
                 {s.publisher}
-                {s.published ? ` · ${formatDate(s.published)}` : ""} · {s.role}
+                {s.publishedDate ? ` · ${formatIsoDate(s.publishedDate)}` : ""} · {s.supports}
+                {s.reviewStatus === "not-reviewed" && (
+                  <span className="ml-1.5 font-mono uppercase tracking-wider text-warning">Not reviewed here</span>
+                )}
               </span>
             </li>
           ))}
@@ -227,14 +278,24 @@ export function EvidenceCard({ record }: { record: EvidenceRecord }) {
   );
 }
 
-function Figure({ value, label }: { value: string; label: string }) {
+function KeyFigure({ finding }: { finding: KeyFinding }) {
+  const k = STATEMENT_KINDS[finding.kind];
+  if (typeof finding.value === "number") {
+    return (
+      <div className="flex items-center gap-4 border-t p-5 first:border-t-0 sm:border-l sm:border-t-0 sm:first:border-l-0">
+        <span className={cn("font-display text-5xl font-semibold leading-none", k.text)}>{finding.value}</span>
+        <span className="space-y-1">
+          <StatementKindBadge kind={finding.kind} />
+          <span className="block text-sm leading-snug">{finding.label}</span>
+        </span>
+      </div>
+    );
+  }
   return (
-    <div className="flex items-center gap-4 border-t p-5 first:border-t-0 sm:border-l sm:border-t-0 sm:first:border-l-0">
-      <span className="font-display text-5xl font-semibold leading-none text-observation">{value}</span>
-      <span className="space-y-1">
-        <StatementKindBadge kind="observation" />
-        <span className="block text-sm leading-snug">{label}</span>
-      </span>
+    <div className="flex flex-col justify-center gap-1 border-t p-5 first:border-t-0 sm:border-l sm:border-t-0 sm:first:border-l-0">
+      <StatementKindBadge kind={finding.kind} />
+      <p className="font-display text-lg font-semibold leading-snug">{finding.value}</p>
+      {finding.detail && <p className="text-xs text-muted-foreground">{finding.detail}</p>}
     </div>
   );
 }

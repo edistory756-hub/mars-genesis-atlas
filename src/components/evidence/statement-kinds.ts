@@ -1,6 +1,6 @@
 import { Eye, HelpCircle, Lightbulb, FlaskConical, type LucideIcon } from "lucide-react";
 
-import type { StatementKind } from "@/lib/evidence/records";
+import type { StatementKind } from "@/lib/evidence/schema";
 
 export interface StatementKindStyle {
   label: string;
