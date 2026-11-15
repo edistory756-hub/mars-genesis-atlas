@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MarsExplorerRouteImport } from './routes/mars-explorer'
+import { Route as NasaEvidenceRouteImport } from './routes/nasa-evidence'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,40 @@ const MarsExplorerRoute = MarsExplorerRouteImport.update({
   path: '/mars-explorer',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NasaEvidenceRoute = NasaEvidenceRouteImport.update({
+  id: '/nasa-evidence',
+  path: '/nasa-evidence',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/mars-explorer': typeof MarsExplorerRoute
+  '/nasa-evidence': typeof NasaEvidenceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/mars-explorer': typeof MarsExplorerRoute
+  '/nasa-evidence': typeof NasaEvidenceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/mars-explorer': typeof MarsExplorerRoute
+  '/nasa-evidence': typeof NasaEvidenceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/mars-explorer'
+  fullPaths: '/' | '/mars-explorer' | '/nasa-evidence'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/mars-explorer'
-  id: '__root__' | '/' | '/mars-explorer'
+  to: '/' | '/mars-explorer' | '/nasa-evidence'
+  id: '__root__' | '/' | '/mars-explorer' | '/nasa-evidence'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MarsExplorerRoute: typeof MarsExplorerRoute
+  NasaEvidenceRoute: typeof NasaEvidenceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MarsExplorerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nasa-evidence': {
+      id: '/nasa-evidence'
+      path: '/nasa-evidence'
+      fullPath: '/nasa-evidence'
+      preLoaderRoute: typeof NasaEvidenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MarsExplorerRoute: MarsExplorerRoute,
+  NasaEvidenceRoute: NasaEvidenceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

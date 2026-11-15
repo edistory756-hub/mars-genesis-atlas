@@ -2,10 +2,21 @@ import { ClientOnly, createFileRoute } from "@tanstack/react-router";
 import { Suspense, lazy } from "react";
 import { Loader2 } from "lucide-react";
 
+import { getEvidence } from "@/lib/evidence/records";
+
 // OpenLayers is browser-only; load the map module after hydration.
 const MarsExplorer = lazy(() => import("@/components/mars/MarsExplorer"));
 
+interface MarsExplorerSearch {
+  /** Evidence record to focus on the map; unknown ids are dropped. */
+  evidence?: string;
+}
+
 export const Route = createFileRoute("/mars-explorer")({
+  validateSearch: (search: Record<string, unknown>): MarsExplorerSearch => {
+    const id = search["evidence"];
+    return typeof id === "string" && getEvidence(id) ? { evidence: id } : {};
+  },
   head: () => ({
     meta: [
       { title: "Mars Explorer — MARS GENESIS" },
@@ -37,6 +48,8 @@ function MapFallback() {
 }
 
 function MarsExplorerPage() {
+  const { evidence } = Route.useSearch();
+  const navigate = Route.useNavigate();
   return (
     <main className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
@@ -51,7 +64,12 @@ function MarsExplorerPage() {
       </div>
       <ClientOnly fallback={<MapFallback />}>
         <Suspense fallback={<MapFallback />}>
-          <MarsExplorer />
+          <MarsExplorer
+            focusEvidenceId={evidence ?? null}
+            onFocusEvidence={(id: string | null) =>
+              navigate({ search: id ? { evidence: id } : {}, replace: true, resetScroll: false })
+            }
+          />
         </Suspense>
       </ClientOnly>
     </main>

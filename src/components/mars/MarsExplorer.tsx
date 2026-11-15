@@ -4,17 +4,22 @@ import OlMap from "ol/Map";
 import View from "ol/View";
 import Feature from "ol/Feature";
 import Point from "ol/geom/Point";
+import { circular } from "ol/geom/Polygon";
 import TileLayer from "ol/layer/Tile";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import WMTS from "ol/source/WMTS";
 import { Attribution, Zoom, defaults as defaultControls } from "ol/control";
 import { containsCoordinate } from "ol/extent";
-import { Circle, Fill, Stroke, Style } from "ol/style";
+import { Circle, Fill, Stroke, Style, Text } from "ol/style";
+import type { FeatureLike } from "ol/Feature";
+import { Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
   CheckCircle2,
   Crosshair,
+  ExternalLink,
+  FileSearch,
   Layers,
   Loader2,
   MapPin,
@@ -36,7 +41,9 @@ import {
   type MarsLayerDef,
 } from "@/lib/mars/catalog";
 import { TrekLayerError, verifyTrekLayer, type VerifiedLayer } from "@/lib/mars/capabilities";
+import { EVIDENCE_RECORDS, getEvidence } from "@/lib/evidence/records";
 import {
+  MARS_RADIUS_M,
   equatorialKmPerPixel,
   formatLat,
   formatLonEast180,
@@ -69,11 +76,39 @@ function cssVar(name: string, fallback: string) {
   return v || fallback;
 }
 
-export default function MarsExplorer() {
+/** Approximate region polygons for evidence records (great-circle radius on the Mars sphere). */
+function buildEvidenceFeatures() {
+  return EVIDENCE_RECORDS.map((record) => {
+    const loc = record.location.locator;
+    const geometry = circular(
+      [loc.center.lon, loc.center.lat],
+      (loc.diameterKm * 1000) / 2,
+      96,
+      MARS_RADIUS_M,
+    );
+    const feature = new Feature({ geometry, name: loc.name });
+    feature.setId(record.id);
+    return feature;
+  });
+}
+
+interface MarsExplorerProps {
+  /** Evidence record to highlight and zoom to. */
+  focusEvidenceId?: string | null;
+  onFocusEvidence?: (id: string | null) => void;
+}
+
+export default function MarsExplorer({ focusEvidenceId = null, onFocusEvidence }: MarsExplorerProps) {
   const mapEl = useRef<HTMLDivElement>(null);
   const mapRef = useRef<OlMap | null>(null);
   const layersRef = useRef(new Map<string, TileLayer<WMTS>>());
   const markerSourceRef = useRef(new VectorSource());
+  const evidenceSourceRef = useRef(new VectorSource({ features: buildEvidenceFeatures() }));
+  const evidenceLayerRef = useRef<VectorLayer | null>(null);
+  const focusRef = useRef(focusEvidenceId);
+  const onFocusRef = useRef(onFocusEvidence);
+  focusRef.current = focusEvidenceId;
+  onFocusRef.current = onFocusEvidence;
   const statsRef = useRef(new Map<string, TileStats>());
   const rafRef = useRef<number | null>(null);
   const controllersRef = useRef(new Map<string, AbortController>());
@@ -203,9 +238,37 @@ export default function MarsExplorer() {
       ],
     });
 
+    const accent = cssVar("--accent", "#e5b453");
+    const evidenceStyle = (feature: FeatureLike) => {
+      const focused = feature.getId() === focusRef.current;
+      return [
+        new Style({
+          stroke: new Stroke({ color: bg, width: focused ? 6 : 5 }),
+        }),
+        new Style({
+          stroke: new Stroke({ color: accent, width: focused ? 2.5 : 1.75, lineDash: [6, 5] }),
+          fill: new Fill({ color: focused ? "rgba(229,180,83,0.14)" : "rgba(229,180,83,0.06)" }),
+          text: new Text({
+            text: `${feature.get("name")} · approx.`,
+            font: "500 12px 'IBM Plex Mono', monospace",
+            fill: new Fill({ color: fg }),
+            stroke: new Stroke({ color: bg, width: 4 }),
+            overflow: true,
+            offsetY: 0,
+          }),
+        }),
+      ];
+    };
+    const evidenceLayer = new VectorLayer({
+      source: evidenceSourceRef.current,
+      zIndex: 5,
+      style: evidenceStyle,
+    });
+    evidenceLayerRef.current = evidenceLayer;
+
     const map = new OlMap({
       target: mapEl.current,
-      layers: [markerLayer],
+      layers: [evidenceLayer, markerLayer],
       controls: defaultControls({ attribution: false, zoom: false, rotate: false }).extend([
         new Zoom({ zoomInTipLabel: "Zoom in", zoomOutTipLabel: "Zoom out" }),
         new Attribution({ collapsible: false }),
@@ -230,6 +293,9 @@ export default function MarsExplorer() {
     map.on("pointermove", (evt) => {
       if (evt.dragging) return;
       const [lon = 0, lat = 0] = evt.coordinate;
+      const overEvidence = map.hasFeatureAtPixel(evt.pixel, { layerFilter: (l) => l === evidenceLayer });
+      const vp = map.getViewport();
+      if (vp) vp.style.cursor = overEvidence ? "pointer" : "";
       if (moveRaf != null) cancelAnimationFrame(moveRaf);
       moveRaf = requestAnimationFrame(() => {
         setPointer(containsCoordinate(MARS_EXTENT, [lon, lat]) ? { lon, lat } : null);
@@ -243,6 +309,10 @@ export default function MarsExplorer() {
       markerSourceRef.current.clear();
       markerSourceRef.current.addFeature(new Feature(new Point([lon, lat])));
       setSelected({ lon: normalizeLon180(lon), lat });
+      const hitId = map.forEachFeatureAtPixel(evt.pixel, (f) => f.getId(), {
+        layerFilter: (l) => l === evidenceLayer,
+      });
+      if (typeof hitId === "string") onFocusRef.current?.(hitId);
     });
     map.getView().on("change:resolution", () => setResolution(map.getView().getResolution() ?? null));
     setResolution(map.getView().getResolution() ?? null);
@@ -255,6 +325,7 @@ export default function MarsExplorer() {
       ro.disconnect();
       map.setTarget(undefined);
       mapRef.current = null;
+      evidenceLayerRef.current = null;
       layersRef.current.clear();
       statsRef.current.clear();
       setMapReady(false);
@@ -274,6 +345,18 @@ export default function MarsExplorer() {
       if (id === overlayId) layer.setOpacity(overlayOpacity);
     });
   }, [mapReady, statuses, baseId, overlayId, overlayOpacity, ensureLayer]);
+
+  // ---- 5. Highlight and zoom to the focused evidence record's approximate region.
+  useEffect(() => {
+    if (!mapReady) return;
+    evidenceLayerRef.current?.changed();
+    const map = mapRef.current;
+    const feature = focusEvidenceId ? evidenceSourceRef.current.getFeatureById(focusEvidenceId) : null;
+    const extent = feature?.getGeometry()?.getExtent();
+    if (map && extent) {
+      map.getView().fit(extent, { size: map.getSize(), padding: [60, 60, 60, 60], duration: 700 });
+    }
+  }, [mapReady, focusEvidenceId]);
 
   // A selected layer that later fails verification is switched off.
   useEffect(() => {
@@ -319,6 +402,7 @@ export default function MarsExplorer() {
   const baseStatus = statuses[baseId] ?? CHECKING;
   const bases = MARS_LAYERS.filter((l) => l.kind === "base");
   const overlays = MARS_LAYERS.filter((l) => l.kind === "overlay");
+  const focusedEvidence = getEvidence(focusEvidenceId);
   const verifiedCount = Object.values(statuses).filter((s) => s.state === "ready").length;
   const checkingCount = Object.values(statuses).filter((s) => s.state === "checking").length;
 
@@ -433,6 +517,72 @@ export default function MarsExplorer() {
 
       {/* Control panel */}
       <aside className="flex flex-col gap-4">
+        <Panel title="NASA evidence" icon={<FileSearch className="size-4 text-accent" />} meta="Approx. regions">
+          {focusedEvidence ? (
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="font-semibold">{focusedEvidence.sample.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {focusedEvidence.rover} · {focusedEvidence.location.hierarchy.slice(0, 3).join(" › ")}
+                </p>
+              </div>
+              <p className="rounded-md border-l-4 border-observation bg-observation/5 px-3 py-2">
+                <span className="block font-mono text-[10px] uppercase tracking-wider text-observation">Observation</span>
+                {focusedEvidence.findings.carbonMoleculesIdentified} carbon-containing molecules identified;{" "}
+                {focusedEvidence.findings.firstTimeOnMars} detected for the first time on Mars.
+              </p>
+              <p className="rounded-md border-l-4 border-dashed border-hypothesis bg-hypothesis/5 px-3 py-2">
+                <span className="block font-mono text-[10px] uppercase tracking-wider text-hypothesis">Hypothesis</span>
+                Origin biological or geological — not established.
+              </p>
+              <p className="flex gap-2 rounded-md border border-warning/50 bg-warning/10 p-2.5 text-xs">
+                <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
+                <span>
+                  <span className="font-semibold">Approximate locator.</span> The dashed circle is{" "}
+                  {focusedEvidence.location.locator.name} ({formatLat(focusedEvidence.location.locator.center.lat, 2)},{" "}
+                  {formatLonEast180(focusedEvidence.location.locator.center.lon, 2)}, ≈
+                  {Math.round(focusedEvidence.location.locator.diameterKm)} km). Exact sample coordinates are not verified.
+                </span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild size="sm">
+                  <Link to="/nasa-evidence" hash={focusedEvidence.id}>
+                    Full evidence record
+                  </Link>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <a href={focusedEvidence.primarySourceUrl} target="_blank" rel="noreferrer">
+                    NASA source <ExternalLink />
+                  </a>
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => onFocusEvidence?.(null)}>
+                  <X /> Close
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <ul className="space-y-1.5">
+              {EVIDENCE_RECORDS.map((r) => (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    onClick={() => onFocusEvidence?.(r.id)}
+                    className={optionClass(false, false)}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">{r.sample.name}</span>
+                      <span className="block truncate font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {r.rover} · {r.location.locator.name} (approx.)
+                      </span>
+                    </span>
+                    <MapPin className="size-4 shrink-0 text-accent" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
         <Panel title="Selected location" icon={<MapPin className="size-4 text-primary" />}>
           {selected ? (
             <div className="space-y-3">

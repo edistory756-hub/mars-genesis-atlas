@@ -45,6 +45,9 @@ function Index() {
               Open Mars Explorer <ArrowRight />
             </Link>
           </Button>
+          <Button asChild size="lg" variant="outline">
+            <Link to="/nasa-evidence">NASA Evidence</Link>
+          </Button>
         </div>
       </section>
     </main>
