@@ -36,3 +36,5 @@ use the editor.
 - A map layer becomes selectable only after its capabilities parse and a real probe tile loads; failures show an error with retry, never substitute imagery.
 - OpenLayers code lives in lazily imported client-only modules rendered behind `<ClientOnly>`, because it touches browser APIs during SSR.
 - Mars WMTS parsing is tested against verbatim NASA capabilities fixtures in `src/test/fixtures/`, so tests run without network.
+- NASA evidence lives as typed records in `src/lib/evidence/records.ts`, each statement tagged observation/interpretation/hypothesis/unknown with its verbatim source quote, because claims must stay traceable and the UI styles each kind distinctly.
+- Unverified values (sample coordinates, dates) are stored as `null` and map links use clearly labelled approximate-region locators, because the project never invents NASA data.
