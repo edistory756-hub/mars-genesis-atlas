@@ -28,3 +28,11 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+
+- Mars maps use OpenLayers WMTS configured from NASA Mars Trek GetCapabilities at runtime (`src/lib/mars/capabilities.ts`); never hardcode tile grids or use EPSG:3857, because Trek serves Mars 2000 (EPSG::104905) and only the capabilities are authoritative.
+- The Mars projection keeps OpenLayers `degrees` units and the tile grid is rebuilt from MatrixWidth/TileWidth over 360°, because Trek's ScaleDenominators assume Earth meters-per-degree; ground distances shown to users must use `MARS_METERS_PER_DEGREE`.
+- A map layer becomes selectable only after its capabilities parse and a real probe tile loads; failures show an error with retry, never substitute imagery.
+- OpenLayers code lives in lazily imported client-only modules rendered behind `<ClientOnly>`, because it touches browser APIs during SSR.
+- Mars WMTS parsing is tested against verbatim NASA capabilities fixtures in `src/test/fixtures/`, so tests run without network.
